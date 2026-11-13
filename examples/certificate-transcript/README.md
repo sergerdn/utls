@@ -4,8 +4,8 @@ This standalone Surf client exercises the Safari TLS path affected by a TLS 1.3 
 nested module is `example.com/certificate-transcript`, requires Go 1.27, and pins Surf `v1.0.236` with
 `github.com/enetx/utls v1.0.6` as the published, affected baseline.
 
-**Live status:** the standalone external request has not yet been run. The live results below are expected outcomes, not
-captured output. The deterministic regression tests provide a separate way to exercise the transcript defect.
+**Live verification:** direct IPv4 requests reproduced the failure and verified the fix on 2026-11-13, using Go 1.27.4
+on darwin/arm64. The captured results below compare the pinned published baseline with this checkout’s local fix.
 
 ## Live baseline
 
@@ -16,15 +16,15 @@ cd examples/certificate-transcript
 go version
 go env GOOS GOARCH
 go list -m github.com/enetx/surf github.com/enetx/utls
-go run . -url https://example.com/ -network tcp6
+go run . -url https://example.com/ -network tcp4
 ```
 
 The baseline module listing must show `github.com/enetx/surf v1.0.236` and `github.com/enetx/utls v1.0.6`, with no `=>`
 replacement.
 
 Record the version and module output alongside the request result. The first run may download dependencies. The default
-URL is `https://example.com/`; `-url` selects another HTTPS endpoint. The default network is `tcp6`; `-network tcp4`
-selects IPv4, and `-network tcp` allows either address family.
+URL is `https://example.com/`; `-url` selects another HTTPS endpoint. The default network is `tcp4` (IPv4);
+`-network tcp6` selects IPv6, and `-network tcp` allows either address family.
 
 The client uses `SecureTLS()`, `Proxy("")`, a 20-second timeout, and `JA().Safari26_3()`. Its custom dialer selects the
 requested address family, and `NotFollowRedirects()` disables redirects. The program requires an absolute HTTPS URL and
@@ -32,10 +32,12 @@ one of the three supported network values. Certificate verification is enabled, 
 these commands make direct connections. A successful request prints the HTTP status, negotiated TLS version, and ALPN. A
 request failure exits nonzero.
 
-For an affected TLS 1.3 handshake with an ECDSA server certificate, the expected failure includes:
+Captured baseline output (banner on stdout, error on stderr):
 
 ```text
-tls: invalid signature by the server certificate: ECDSA verification failure
+Safari 26.3; network=tcp4; certificate verification enabled; proxy disabled
+request: Get "https://example.com/": uTLS.HandshakeContext() error: tls: invalid signature by the server certificate: ECDSA verification failure
+exit status 1
 ```
 
 A live failure depends on the server's certificate message, including its extension order, and on reaching that server.
@@ -57,14 +59,33 @@ Stay in `examples/certificate-transcript` and run the same request using the che
   cp go.sum "$transcript_mod_dir/fixed.sum"
   go mod edit -modfile="$transcript_mod_dir/fixed.mod" -replace=github.com/enetx/utls=../..
   go list -modfile="$transcript_mod_dir/fixed.mod" -m github.com/enetx/surf github.com/enetx/utls
-  go run -modfile="$transcript_mod_dir/fixed.mod" . -url https://example.com/ -network tcp6
+  go run -modfile="$transcript_mod_dir/fixed.mod" . -url https://example.com/ -network tcp4
 )
 ```
 
 The replacement `../..` resolves from the example's module root to the repository root, even though `fixed.mod` is in a
 temporary directory. The module listing must show `github.com/enetx/utls v1.0.6 => ../..`. The temporary modfile and its
-matching `fixed.sum` keep the committed example module unchanged. Use the same URL and address family in both runs. For
-a server that triggers the baseline defect, the expected fixed result is an HTTP response with TLS 1.3 negotiated.
+matching `fixed.sum` keep the committed example module unchanged. Use the same URL and address family in both runs.
+
+Captured fixed output (exit status 0):
+
+```text
+Safari 26.3; network=tcp4; certificate verification enabled; proxy disabled
+HTTP status: 200
+TLS: TLS 1.3; ALPN: "h2"
+```
+
+Observed direct-request results on 2026-11-13:
+
+| Endpoint                                             | Network | Published v1.0.6                 | Local fix                        |
+|------------------------------------------------------|---------|----------------------------------|----------------------------------|
+| `https://example.com/`                               | IPv4    | 3/3 ECDSA verification failures  | 3/3 HTTP 200, TLS 1.3, ALPN `h2` |
+| `https://www.cloudflare.com/cdn-cgi/trace` (control) | IPv4    | 3/3 HTTP 200, TLS 1.3, ALPN `h2` | 3/3 HTTP 200, TLS 1.3, ALPN `h2` |
+| Both endpoints                                       | IPv6    | Both attempts failed before TLS  | Both attempts failed before TLS  |
+
+The four IPv6 attempts, one per endpoint and variant, all failed with `connect: no route to host`. This is an
+environment limitation; no IPv6 TLS result was established. Repeat the control by selecting its URL with `-url` in both
+commands.
 
 ## Deterministic regression tests
 
@@ -80,7 +101,7 @@ go test -count=1 -run '^TestTLS13ServerCertificateTranscript(RejectsInvalidSigna
 
 Observed locally with Go 1.27.4 on darwin/arm64: the archived baseline failed four valid-signature cases, and the fixed
 checkout passed ten race-enabled runs using the command below. Both the published-baseline example and the local-fix
-example passed build and vet. The standalone live comparison remains unverified.
+example passed build and vet.
 
 ```bash
 go test -race -count=10 -run '^TestTLS13ServerCertificateTranscript' .

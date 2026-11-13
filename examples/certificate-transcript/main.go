@@ -17,7 +17,7 @@ import (
 
 func main() {
 	target := flag.String("url", "https://example.com/", "HTTPS URL to request")
-	network := flag.String("network", "tcp6", "address family: tcp, tcp4, or tcp6")
+	network := flag.String("network", "tcp4", "address family: tcp, tcp4, or tcp6")
 	flag.Parse()
 
 	if err := run(*target, *network); err != nil {
