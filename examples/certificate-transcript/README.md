@@ -16,21 +16,19 @@ cd examples/certificate-transcript
 go version
 go env GOOS GOARCH
 go list -m github.com/enetx/surf github.com/enetx/utls
-go run . -url https://example.com/ -network tcp4
+go run . -url https://example.com/
 ```
 
 The baseline module listing must show `github.com/enetx/surf v1.0.236` and `github.com/enetx/utls v1.0.6`, with no `=>`
 replacement.
 
 Record the version and module output alongside the request result. The first run may download dependencies. The default
-URL is `https://example.com/`; `-url` selects another HTTPS endpoint. The default network is `tcp4` (IPv4);
-`-network tcp6` selects IPv6, and `-network tcp` allows either address family.
+URL is `https://example.com/`; `-url` selects another HTTPS endpoint.
 
-The client uses `SecureTLS()`, `Proxy("")`, a 20-second timeout, and `JA().Safari26_3()`. Its custom dialer selects the
-requested address family, and `NotFollowRedirects()` disables redirects. The program requires an absolute HTTPS URL and
-one of the three supported network values. Certificate verification is enabled, and ambient proxy settings are disabled:
-these commands make direct connections. A successful request prints the HTTP status, negotiated TLS version, and ALPN. A
-request failure exits nonzero.
+The client uses `SecureTLS()`, `Proxy("")`, a 20-second timeout, and `JA().Safari26_3()`. It connects over IPv4, and
+`NotFollowRedirects()` disables redirects. The program requires an absolute HTTPS URL. Certificate verification is
+enabled, and ambient proxy settings are disabled: these commands make direct connections. A successful request prints
+the HTTP status, negotiated TLS version, and ALPN. A request failure exits nonzero.
 
 Captured baseline output (banner on stdout, error on stderr):
 
@@ -41,10 +39,9 @@ exit status 1
 ```
 
 A live failure depends on the server's certificate message, including its extension order, and on reaching that server.
-The IPv6 run requires an AAAA record and working IPv6 connectivity. A routing, DNS, timeout, or trust failure does not
-establish this bug. A successful baseline request does not disprove it: the endpoint may select a different handshake or
-certificate representation. Safari advertises zlib certificate compression, but the server may send an ordinary,
-uncompressed `Certificate` message.
+A routing, DNS, timeout, or trust failure does not establish this bug. A successful baseline request does not disprove
+it: the endpoint may select a different handshake or certificate representation. Safari advertises zlib certificate
+compression, but the server may send an ordinary, uncompressed `Certificate` message.
 
 ## Compare the local fix
 
@@ -59,13 +56,13 @@ Stay in `examples/certificate-transcript` and run the same request using the che
   cp go.sum "$transcript_mod_dir/fixed.sum"
   go mod edit -modfile="$transcript_mod_dir/fixed.mod" -replace=github.com/enetx/utls=../..
   go list -modfile="$transcript_mod_dir/fixed.mod" -m github.com/enetx/surf github.com/enetx/utls
-  go run -modfile="$transcript_mod_dir/fixed.mod" . -url https://example.com/ -network tcp4
+  go run -modfile="$transcript_mod_dir/fixed.mod" . -url https://example.com/
 )
 ```
 
 The replacement `../..` resolves from the example's module root to the repository root, even though `fixed.mod` is in a
 temporary directory. The module listing must show `github.com/enetx/utls v1.0.6 => ../..`. The temporary modfile and its
-matching `fixed.sum` keep the committed example module unchanged. Use the same URL and address family in both runs.
+matching `fixed.sum` keep the committed example module unchanged. Use the same URL in both runs.
 
 Captured fixed output (exit status 0):
 
@@ -77,15 +74,12 @@ TLS: TLS 1.3; ALPN: "h2"
 
 Observed direct-request results on 2026-11-13:
 
-| Endpoint                                             | Network | Published v1.0.6                 | Local fix                        |
-|------------------------------------------------------|---------|----------------------------------|----------------------------------|
-| `https://example.com/`                               | IPv4    | 3/3 ECDSA verification failures  | 3/3 HTTP 200, TLS 1.3, ALPN `h2` |
-| `https://www.cloudflare.com/cdn-cgi/trace` (control) | IPv4    | 3/3 HTTP 200, TLS 1.3, ALPN `h2` | 3/3 HTTP 200, TLS 1.3, ALPN `h2` |
-| Both endpoints                                       | IPv6    | Both attempts failed before TLS  | Both attempts failed before TLS  |
+| Endpoint                                             | Published v1.0.6                 | Local fix                        |
+|------------------------------------------------------|----------------------------------|----------------------------------|
+| `https://example.com/`                               | 3/3 ECDSA verification failures  | 3/3 HTTP 200, TLS 1.3, ALPN `h2` |
+| `https://www.cloudflare.com/cdn-cgi/trace` (control) | 3/3 HTTP 200, TLS 1.3, ALPN `h2` | 3/3 HTTP 200, TLS 1.3, ALPN `h2` |
 
-The four IPv6 attempts, one per endpoint and variant, all failed with `connect: no route to host`. This is an
-environment limitation; no IPv6 TLS result was established. Repeat the control by selecting its URL with `-url` in both
-commands.
+Repeat the control by selecting its URL with `-url` in both commands.
 
 ## Deterministic regression tests
 

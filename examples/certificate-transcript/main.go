@@ -17,32 +17,25 @@ import (
 
 func main() {
 	target := flag.String("url", "https://example.com/", "HTTPS URL to request")
-	network := flag.String("network", "tcp4", "address family: tcp, tcp4, or tcp6")
 	flag.Parse()
 
-	if err := run(*target, *network); err != nil {
+	if err := run(*target); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(target, network string) error {
+func run(target string) error {
 	u, err := url.ParseRequestURI(target)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
 		return fmt.Errorf("url must be an absolute HTTPS URL")
-	}
-
-	switch network {
-	case "tcp", "tcp4", "tcp6":
-	default:
-		return fmt.Errorf("unsupported network %q: use tcp, tcp4, or tcp6", network)
 	}
 
 	client := surf.NewClient()
 	transport := client.GetTransport().(*surfhttp.Transport)
 	dialer := client.GetDialer()
 	transport.DialContext = func(ctx context.Context, _ string, addr string) (net.Conn, error) {
-		return dialer.DialContext(ctx, network, addr)
+		return dialer.DialContext(ctx, "tcp4", addr)
 	}
 
 	client, err = client.Builder().
@@ -59,7 +52,7 @@ func run(target, network string) error {
 	}
 	defer client.Close()
 
-	fmt.Printf("Safari 26.3; network=%s; certificate verification enabled; proxy disabled\n", network)
+	fmt.Println("Safari 26.3; network=tcp4; certificate verification enabled; proxy disabled")
 	response, err := client.Get(g.String(target)).Do().Result()
 	if err != nil {
 		return fmt.Errorf("request: %w", err)
